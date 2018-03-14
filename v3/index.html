@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Shortest Paths</title>
+	<style>
+	svg {
+	  background-color: #B39D9D;
+	  cursor: default;
+	  -webkit-user-select: none;
+	  -moz-user-select: none;
+	  -ms-user-select: none;
+	  -o-user-select: none;
+	  user-select: none;
+	}
+
+	svg:not(.active):not(.ctrl) {
+	  cursor: crosshair;
+	}
+
+	path.link {
+	  fill: none;
+	  stroke:#2A0A0A;
+	  stroke-width: 3px;
+	  cursor: default;
+	}
+
+	svg:not(.active):not(.ctrl) path.link {
+	  cursor: pointer;
+	}
+
+	path.link.selected {
+	  stroke-dasharray: 10,2;
+	}
+
+	path.link.dragline {
+	  pointer-events: none;
+	}
+
+	path.link.hidden {
+	  stroke-width: 0;
+	}
+
+	circle.node {
+	  stroke-width: 1.5px;
+	  cursor: pointer;
+	  
+	}
+	
+	circle.back_node {
+	  stroke-width: 1.5px;
+	  stroke: #000;
+	  cursor: default;
+	}
+
+	circle.node.reflexive {
+	  stroke: #000 !important;
+	  stroke-width: 2.5px;
+	}
+	
+	text {
+	  font: 12px sans-serif;
+	  pointer-events: none;
+	}
+
+	text.id {
+	  text-anchor: middle;
+	  font-weight: bold;
+	}
+	</style>
+	<link href="../bootstrap/css/bootstrap.css" rel="stylesheet" type="text/css"/>
+  </head>
+  
+<body>
+<div class="row">
+	<div class="col-md-9" id="chart"></div>
+</div>
+<div class="col-md-9 text-center">
+	<div onclick="findCycle();"class="btn btn-success" style="border-radius: 0px;">
+	 Process Cyclic Graph
+	</div>
+	<div onclick="task();"class="btn btn-info" style="border-radius: 0px;">
+	 Task Scheduler
+	</div>
+	<div onclick="location.reload(); return false;"class="btn btn-warning" style="border-radius: 0px;">
+	 Reset
+	</div>
+</div>
+</br>
+<div class="col-md-5">
+</br>
+</br>
+	<table class="table table-striped table-bordered table-hover" id="display">
+		<tbody>
+			<tr id="1">
+				<td> P1 </td>
+			</tr>
+			<tr id="2">
+				<td> P2 </td>
+			</tr>
+		</tbody>
+	</table>
+</div>
+
+
+</body>
+
+<script src="../d3.js"></script>
+<script src="../bootstrap/jquery-1.11.1.min.js" ></script>
+<script src="../bootstrap/js/bootstrap.js" ></script>
+</html>
+<script>
+	// set up SVG for D3
+var width  = 1000,
+    height = 400,
+    colors = d3.scale.category20();
+
+var svg = d3.select('#chart')
+  .append('svg')
+  .attr('width', width)
+  .attr('height', height);
+  
+  svg.append('g')
+  .attr('id','link');
+  
+
+// define arrow markers for graph links
+svg.append('svg:defs').append('svg:marker')
+    .attr('id', 'end-arrow')
+    .attr('viewBox', '0 -5 10 10')
+    .attr('refX', 23)
+    .attr('markerWidth', 3)
+    .attr('markerHeight', 3)
+    .attr('orient', 'auto')
+  .append('svg:path')
+    .attr('d', 'M0,-5L10,0L0,5')
+    .attr('fill', '#2A0A0A');
+
+	
+svg.append('svg:defs').append('svg:marker')
+    .attr('id', 'end-arrow-red')
+    .attr('viewBox', '0 -5 10 10')
+    .attr('refX', 23)
+    .attr('markerWidth', 3)
+    .attr('markerHeight', 3)
+    .attr('orient', 'auto')
+  .append('svg:path')
+    .attr('d', 'M0,-5L10,0L0,5')
+    .attr('fill', 'red');	
+	
+// line displayed when dragging new nodes
+var drag_line = svg.append('svg:path')
+  .attr('class', 'link dragline hidden')
+  .attr('d', 'M0,0L0,0');
+
+// mouse event vars
+var selected_node = null,
+    selected_link = null,
+    mousedown_link = null,
+    mousedown_node = null,
+    mouseup_node = null;
+
+function resetMouseVars() {
+  mousedown_node = null;
+  mouseup_node = null;
+  mousedown_link = null;
+  drag_line.classed('hidden', true);
+}
+
+var id=1,
+	active=false,
+	pointX=0,
+	pointY=0,
+	allNode=[],
+	sourceNode=null,
+	targetNode=null;
+	
+var links=[]; 
+	
+function mousedown(){
+
+if(!active && d3.event.button==0){
+
+	var X=d3.event.pageX,
+		Y=d3.event.pageY;
+		
+	var group=svg.append("g");
+			
+		group.attr('transform','translate('+X+','+Y+')');
+		
+		group.append("circle")
+			.attr('class', 'back_node')
+			.attr('r', 50)
+			.style('opacity',0);
+		
+		allNode.push(id);
+		group.selectAll('circle .node').data([{'id':id,'cx':X,'cy':Y}]).enter()
+			.append('circle')
+			.attr('class', 'node')
+			.attr('r', 12)
+			.style('fill', function(d) { return d3.rgb(colors(id)).brighter().toString(); })
+			.style('stroke', function(d) { return d3.rgb(colors(id)).darker().toString(); })
+			.style('marker-end', 'url(#end-arrow)')
+			.on('mouseover', function(d) {
+			  d3.select(this).attr('transform', 'scale(1.4)');
+			})
+			.on('mouseout', function(d) {
+				d3.select(this).attr('transform', '');
+			})
+			.on('mousedown',function(d){ //MOUSE DOWN ON NODE
+				 if(d3.event.button==0){
+					drag_line
+					.style('marker-end', 'url(#end-arrow)')
+					.classed('hidden', false);
+					
+					pointX=X;
+					pointY=Y;
+						
+					mousedown_node=d;
+				}
+			})
+			.on('mouseup',function(d){ //MOUSE UP ON NODE
+				if(!mousedown_node)
+					return;
+				
+				mouseup_node=d;
+				if(mouseup_node === mousedown_node) { 
+					resetMouseVars(); 
+					return; 
+				}
+								
+				if(!links.some(isContains)){
+					addLink(mousedown_node,mouseup_node);  //CREATE LINK
+				}
+				
+				
+			}).on('dblclick',function(d){  //DOUBLE CLICK ON NODE
+				if(!sourceNode){
+					d3.select(this).style('stroke-width','3.5px');
+					d3.select(this.parentNode).append('text')
+											  .style('text-anchor','middle')
+											  .style('font-weight','bold')
+											  .attr('y',-20)
+											  .text('Source');
+					sourceNode=d;						  
+				}else if(!targetNode){
+					d3.select(this).style('stroke-width','3.5px');
+					d3.select(this.parentNode).append('text')
+											  .style('text-anchor','middle')
+											  .style('font-weight','bold')
+											  .attr('y',-20)
+											  .text('Target');
+					targetNode=d;
+				}
+			});
+
+		group.append("text")
+			.style('text-anchor','middle')
+			.style('dominant-baseline','middle')
+			.text(id);
+			
+		group.on('mouseover',function(){
+				active=true;
+			}).on('mouseout',function(){
+				active=false;
+			});
+			
+	id++;
+}
+
+}
+
+function mousemove() {
+  if(!mousedown_node) return;
+ 
+  	drag_line.attr('d', 'M' + pointX + ',' + pointY + 'L' + d3.mouse(this)[0] + ',' + d3.mouse(this)[1]);
+
+}
+
+function mouseup() {
+  if(mousedown_node) {
+    // hide drag line
+    drag_line
+	  .attr('d', 'M0,0L0,0')
+      .classed('hidden', true)
+      .style('marker-end', '');
+  }
+
+  resetMouseVars();
+}
+
+function addLink(mousedown_node,mouseup_node) {
+	
+	var x= (mouseup_node.cx+mousedown_node.cx )/2, //POSITION TEXT
+		y= (mouseup_node.cy+mousedown_node.cy )/2;
+	
+	var x1= (mouseup_node.cx-mousedown_node.cx )/2, //DISTANCE LINK
+		y1= (mouseup_node.cy-mousedown_node.cy )/2;
+		
+	var rangeN = d3.scale.linear()
+					.domain([0, 500])
+					.range([0,50]);	
+					
+	var dist=parseInt(rangeN(Math.sqrt(Math.pow(x1,2)+Math.pow(y1,2))));
+	
+	var g=svg.select('#link').append('g');
+		
+	g.selectAll('path')
+		.data([{source:mousedown_node.id,target:mouseup_node.id, zdist:dist}]).enter()
+		.append('path')
+		.attr('class','link')
+		.attr('d', 'M' + mousedown_node.cx + ',' + mousedown_node.cy + 'L' + (mouseup_node.cx) + ',' + (mouseup_node.cy))
+		.style('marker-end', 'url(#end-arrow)');				
+		
+	g.append('text')
+		.style('fill','white')
+		.style('font-size','15px')
+		.style('font-weight','bold')
+		.style('text-anchor','middle')
+		.attr('x',x)
+		.attr('y',y)
+		.text(dist);
+}
+
+function isContains(element, index, array) {
+  return (element.source==mousedown_node.id && element.target==mouseup_node.id)||(element.target==mousedown_node.id && element.source==mouseup_node.id) ;
+}
+
+svg.on('mousedown',mousedown)
+	.on('mouseup',mouseup)
+	.on('mousemove',mousemove);
+	
+
+//CYCLE TASK
+
+var cycle_link = [];
+function findCycle(){ //find cycle
+		links=svg.select('#link').selectAll('path').data();	
+		var cycle = [];
+		for(var i = 0;i<links.length;i++){
+			if(!cycle.length){
+				var target_list = links.filter(function(d){ 	
+					if(links[i].target == d.source)
+						return d;
+				});
+				target_list.forEach(function(e){
+					var target_2_list;
+					links.forEach(function(d2){ 
+						if(e.target == d2.source && d2.target == links[i].source){
+							cycle.push(links[i],e,d2);
+						}
+					});
+				})
+			}
+			else
+				break;
+		};	
+		if(cycle.length){
+			var parent = parentCycle(cycle);
+			var reverse_link = cycle.find(function(e){
+				return e.target == parent;
+			})
+			changeDirection(reverse_link);
+			findCycle();
+		}
+}
+
+function parentCycle(cycle){ //find parent node
+	var parent;
+	var min_dist = 1000;
+	cycle.forEach(function(c){
+		links.forEach(function(l){
+			if(l.target == c.source && l.zdist < min_dist){
+				min_dist = l.zdist;
+				parent = c.source;
+			}	
+		})
+	})
+	return parent;
+}
+
+function changeDirection(obj){  //reverse the direction
+	var path = svg.select('#link').selectAll('path').data();
+	var id = path.findIndex(x => x.source==obj.source&&x.target==obj.target);
+	
+	path = d3.select(svg.select('#link').selectAll('path')[0][id]);
+	var data = path.data()[0];
+	var cord = path.attr('d').split(/[,\/ML]/);
+	
+	path.data([{source:data['target'],target:data['source'], zdist:data['zdist']}])
+	.attr('d', 'M' + cord[3] + ',' + cord[4] + 'L' + cord[1] + ',' + cord[2]);
+}
+
+
+ var func = function(data) {
+			var cycle = []
+			var d = [];
+
+			for(var i = 0; i < data.length; i++) {
+			d.push(data[i]);
+			for(var _i = 0; _i < data.length; _i++) {
+			if(i == _i) continue;
+			var _d = d[d.length - 1];
+			if(_d.target == data[_i].source && !(_d === data[_i])) {
+			d.push(data[_i]);
+			}
+			}
+			if(d[0].source == d[d.length - 1].target) {
+				cycle.push(d);
+			}
+
+			d = [];
+			}
+
+			return cycle;
+}
+
+
+//TASK SCHEDULER
+var acyclic_link,other_link;
+var copy_source_node_id;
+function task() {
+
+	acyclic_link=[];
+	other_link=[];
+	links=svg.select('#link').selectAll('path').data();
+
+	if(sourceNode && targetNode){		//sourceNode && targetNode
+		findCycle();
+		links=links.filter(function(d){  	//find list of link with current source
+			if(d.source!=targetNode.id)
+				return d;
+			else
+				other_link.push(d);
+		});
+		copy_source_node_id=sourceNode.id;
+		find_acycllic_link(sourceNode.id);
+		
+		console.log("*********************acyclic link*********************");
+		console.log(acyclic_link);
+		
+		console.log("*********************other link***********************");
+		console.log(other_link);
+		
+		find_undirected_link();
+		console.log("*****************find undirected links*****************");
+		console.log(filter_undirected_link);
+		
+
+		for (var i=0;i<filter_undirected_link.length;i++){
+			$('#1').append('<td>'+filter_undirected_link[i].source+'</td>');
+			$('#2').append('<td>'+filter_undirected_link[i].target+'</td>');
+			remove_val(filter_undirected_link[i].source);
+			remove_val(filter_undirected_link[i].target);
+		}
+		
+		for (var i=0;i<allNode.length;i++){
+			var random=Math.floor(Math.random() * 2) + 1;
+			$('#'+random).append('<td>'+allNode[i]+'</td>');
+			
+		}
+		console.log(allNode);
+		
+		svg.select('#link').selectAll('path').style('stroke',function(d){
+			nodeD=d;
+			if(acyclic_link.some(isContainNode))
+				return 'red';
+			else if(filter_undirected_link.some(isContainNode))
+				return 'blue';
+			else
+				return '#2A0A0A'
+		}).style('marker-end',function(d){
+			nodeD=d;
+			if(acyclic_link.some(isContainNode))
+				return 'url(#end-arrow-red)';
+			else if(filter_undirected_link.some(isContainNode))
+				return '';
+			else
+				return 'url(#end-arrow)';
+		});	
+			
+	}
+	
+
+}
+var nodeD;
+function isContainNode(element, index, array) {
+  return (element.source==nodeD.source && element.target==nodeD.target) ;
+}
+
+function remove_val(val){
+	allNode=allNode.filter(function(d){
+		if (d!=val)
+			return d;
+	});
+
+}
+
+function find_acycllic_link(current_source){
+	if(links.length){
+		
+		var result=links.filter(function(d){  	//find list of link with current source
+			if(d.source==current_source)
+				return d;
+		});
+		
+		result.sort(compare); 	//sort by length of link
+		
+		var list_acyclic_node_target=acyclic_link.map(function(d){ 	//list of acyclic target node
+			return d.target;
+		});
+		
+		var list_acyclic_node_source=acyclic_link.map(function(d){  	//list of acyclic source node(exclude sourceNode)
+			if (copy_source_node_id!=d.source)
+				return d.source;
+		});
+		
+		if(result.length){
+			if (list_acyclic_node_target.indexOf(result[0].target)==-1 && result[0].target!=copy_source_node_id && list_acyclic_node_source.indexOf(result[0].source)==-1){ 	//check if target already in acyclic && target not source && check if source already in acyclic
+					acyclic_link.push(result[0]);
+			}else
+				other_link.push(result[0]);	
+				
+			links=links.filter(function(d){  	//remove acyclic link from links
+				if(d.source!=result[0].source || d.target!=result[0].target)
+					return d;
+			});
+			
+			find_acycllic_link(result[0].target);     //find next link
+		}else{
+			if(!check_sourceNode_in_link())      //check if current link dose not have sourceNode 
+				sourceNode.id=links[0].source;      //change current sourceNode to first source in latest link 
+		
+			find_acycllic_link(sourceNode.id); 	//find from sourceNode
+		}
+	}
+}
+
+function check_sourceNode_in_link(){ 	//check if current link have sourceNode 
+	var l=links.map(function(d){
+		return d.source;
+	});
+	if(l.indexOf(sourceNode.id)==-1)
+		return false;
+	else
+		return true;
+}
+
+function compare(a,b) {  	//sorts by distance
+  if (a.zdist < b.zdist)
+     return -1;
+  if (a.zdist > b.zdist)
+    return 1;
+  return 0;
+}
+
+
+var bool;	
+var undirected_link=[],filter_undirected_link=[];
+function find_undirected_link(){
+	undirected_link=other_link.filter(function(d){
+		if(d.source!=copy_source_node_id && d.target!=copy_source_node_id){
+			check(d.source,d.target);
+			if (bool=="not"){
+				check(d.target,d.source);
+				if (bool=="not")
+					return d;
+			}
+		}
+	});
+	
+	filter();
+
+}
+
+function filter(){
+	if(undirected_link.length){
+		undirected_link.sort(compare);
+		filter_undirected_link.push(undirected_link[0]);
+	
+		undirected_link=undirected_link.filter(function(d,i){
+			if(!(d.source==undirected_link[0].source || d.source==undirected_link[0].target || d.target==undirected_link[0].source || d.target==undirected_link[0].target ))
+				return d;
+	});
+	
+	}
+	
+	if(undirected_link.length)
+		filter();
+}
+
+function check(s,t){
+	var source,target;
+	
+	for(var i=0;i<acyclic_link.length;i++) {	
+			if (s==acyclic_link[i].source)
+				source=acyclic_link[i].target;
+			if (t==acyclic_link[i].target)
+				target=acyclic_link[i].source;	
+		}
+	if(!source || !target)
+		bool="not";
+	else if (source==target || (source==t && target==s))
+		bool="find";	
+	else	
+		check(source,target);
+	
+}
+	
+</script>
